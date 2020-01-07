@@ -69,7 +69,7 @@ auth_header = token_info['access_token']
 headers = {'Authorization': 'Bearer %s' % auth_header}
 
 
-limit = 10
+limit = 50
 time_range = 'long_term'
 
 payload = {'limit': 10,
