@@ -18,71 +18,123 @@ import matplotlib.pyplot as plt
 
 
 # client id and secret from registered spotify app
-client_id = ''
-client_secret = ''
-
-# --- Getting code from user ---
-OAUTH_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize'
-
-payload = {'client_id': client_id,
-           'response_type': 'code',
-           'redirect_uri': 'https://localhost/callback/',
-           'scope': 'user-top-read'}
-urlparams = urllibparse.urlencode(payload)
+# here they are loaded from numpy binary file
+client_id, client_secret = np.load('creds.npy')
 
 # path to gecko driver (geckodriver.exe) for selenium firefox usage
-firePath="C:/Users/username/Documents/Selenium/geckodriver.exe"
+firePath = "geckodriver.exe"
 
-url="%s?%s" % (OAUTH_AUTHORIZE_URL, urlparams)
+# --- Getting code from user ---
 
-browser = webdriver.Firefox(executable_path=firePath)
-browser.get(url) 
+def get_user_code(client_id, client_secret, firePath):
+    
+    OAUTH_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize'
+    
+    payload = {'client_id': client_id,
+               'response_type': 'code',
+               'redirect_uri': 'https://localhost/callback/',
+               'scope': 'user-top-read'}
+    urlparams = urllibparse.urlencode(payload)
+
+    url="%s?%s" % (OAUTH_AUTHORIZE_URL, urlparams)
+
+    browser = webdriver.Firefox(executable_path=firePath)
+    browser.get(url) 
 
 
-while 'code=' not in browser.current_url:
-    print('waiting for user to accept')
-    time.sleep(1)
+    while 'code=' not in browser.current_url:
+        print('waiting for user to accept')
+        time.sleep(5)
 
-resultURL = browser.current_url
-code=resultURL.split('code=')[1]
+    resultURL = browser.current_url
+    code=resultURL.split('code=')[1]
+    
+    return code
+
+
+code = get_user_code(client_id, client_secret, firePath)
 
 # --- Using code to get token ---
-OAUTH_TOKEN_URL = 'https://accounts.spotify.com/api/token'
+def get_user_token(code):
+    
+    OAUTH_TOKEN_URL = 'https://accounts.spotify.com/api/token'
+    
+    payload = {'grant_type': 'authorization_code',
+               'code': code,
+               'redirect_uri': 'https://localhost/callback/'}
+    
+    auth_header = base64.b64encode(str(client_id + ':' + client_secret).encode())
+    headers = {'Authorization': 'Basic %s' % auth_header.decode()}
+    
+    response = requests.post(OAUTH_TOKEN_URL, data=payload,
+                headers=headers, verify=True)
+    
+    token_info = response.json()
 
-payload = {'grant_type': 'authorization_code',
-           'code': code,
-           'redirect_uri': 'https://localhost/callback/'}
+    return token_info
 
-auth_header = base64.b64encode(str(client_id + ':' + client_secret).encode())
-headers = {'Authorization': 'Basic %s' % auth_header.decode()}
+token_info = get_user_token(code)
 
-response = requests.post(OAUTH_TOKEN_URL, data=payload,
-            headers=headers, verify=True)
+"""
+time_range: 
 
-token_info = response.json()
+long_term - whole user's history
+medium_term - approx. last 6 months
+short_term - approx. last 4 weeks
+"""
 
 # --- Top artists --- 
 
-TOP_ARTISTS_URL = 'https://api.spotify.com/v1/me/top/artists'
+def get_top_artists(token_info,limit=50,time_range='long_term'):
 
-auth_header = token_info['access_token']
-headers = {'Authorization': 'Bearer %s' % auth_header}
+    TOP_ARTISTS_URL = 'https://api.spotify.com/v1/me/top/artists'
+    
+    auth_header = token_info['access_token']
+    headers = {'Authorization': 'Bearer %s' % auth_header}
+    
+    limit_max = 50
+    offsets = np.arange(0,int(np.ceil(limit/limit_max)))*50
+    limits = np.zeros_like(offsets)
+    
+    limits[0] = np.min([limit,limit_max])
+    for k in range(1,len(offsets)):
+        limits[k] = np.min([limit - limit_max * k, limit_max])
+    
+    top_artists_info = []
+    for k in range(len(offsets)):
+        
+        payload = {'limit': limits[k],
+                   'time_range': time_range,
+                   'offset' : offsets[k]
+                   }
+        
+        urlparams = urllibparse.urlencode(payload)
+        url="%s?%s" % (TOP_ARTISTS_URL, urlparams)
+        
+        response = requests.get(url,# data=payload,
+                    headers=headers, verify=True)
+        
+        top_artists_info0=response.json()['items']
+        
+        for item in top_artists_info0:
+            top_artists_info.append(item)
+        
+    return top_artists_info
 
 
-limit = 50
-time_range = 'long_term'
+top_artists_info = get_top_artists(token_info,limit=80,time_range='long_term')
 
-payload = {'limit': 10,
-           'time_range': time_range
-           }
 
-urlparams = urllibparse.urlencode(payload)
-url="%s?%s" % (TOP_ARTISTS_URL, urlparams)
+limit = 80
+limit_max = 50
+offsets = np.arange(0,int(np.ceil(limit/limit_max)))*50
+limits = np.zeros_like(offsets)
 
-response = requests.get(url,# data=payload,
-            headers=headers, verify=True)
+limits[0] = np.min([limit,limit_max])
+for k in range(1,len(offsets)):
+    limits[k] = np.min([limit - limit_max * k, limit_max])
 
-top_artists_info=response.json()['items']
+
 
 artist_names = [artist['name'] for artist in top_artists_info]
 
