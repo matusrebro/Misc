@@ -48,6 +48,7 @@ def get_user_code(client_id, client_secret, firePath):
 
     resultURL = browser.current_url
     code=resultURL.split('code=')[1]
+    browser.close()
     
     return code
 
@@ -84,7 +85,7 @@ short_term - approx. last 4 weeks
 """
 
 # --- Top artists --- 
-
+# --- Maximum amount of get-able artists is 99
 def get_top_artists(token_info,limit=50,time_range='long_term'):
 
     TOP_ARTISTS_URL = 'https://api.spotify.com/v1/me/top/artists'
@@ -93,12 +94,14 @@ def get_top_artists(token_info,limit=50,time_range='long_term'):
     headers = {'Authorization': 'Bearer %s' % auth_header}
     
     limit_max = 50
-    offsets = np.arange(0,int(np.ceil(limit/limit_max)))*50
+    offset_max = 49 # request returns empty list when  offset>=50
+    limit = np.min([limit,limit_max+offset_max]) # due to the offset limit the maximum amount that can be requested is 99
+    offsets = np.arange(0,int(np.ceil(limit/limit_max)))*offset_max
     limits = np.zeros_like(offsets)
     
     limits[0] = np.min([limit,limit_max])
     for k in range(1,len(offsets)):
-        limits[k] = np.min([limit - limit_max * k, limit_max])
+        limits[k] = np.min([limit + 1 - limit_max * k, limit_max])
     
     top_artists_info = []
     for k in range(len(offsets)):
@@ -116,50 +119,73 @@ def get_top_artists(token_info,limit=50,time_range='long_term'):
         
         top_artists_info0=response.json()['items']
         
+        index = 0
         for item in top_artists_info0:
-            top_artists_info.append(item)
+            if index==0 and k==1:
+                pass
+            else:
+                top_artists_info.append(item)
+            index+=1
         
     return top_artists_info
 
 
-top_artists_info = get_top_artists(token_info,limit=80,time_range='long_term')
-
-
-limit = 80
-limit_max = 50
-offsets = np.arange(0,int(np.ceil(limit/limit_max)))*50
-limits = np.zeros_like(offsets)
-
-limits[0] = np.min([limit,limit_max])
-for k in range(1,len(offsets)):
-    limits[k] = np.min([limit - limit_max * k, limit_max])
-
-
+top_artists_info = get_top_artists(token_info,limit=66,time_range='long_term')
 
 artist_names = [artist['name'] for artist in top_artists_info]
 
+
+
+
+
+
 # --- Top songs --- 
+# --- Maximum amount of get-able tracks is 99
+def get_top_tracks(token_info,limit=50,time_range='long_term'):
+    TOP_SONGS_URL = 'https://api.spotify.com/v1/me/top/tracks'
+    
+    auth_header = token_info['access_token']
+    
+    headers = {'Authorization': 'Bearer %s' % auth_header}
+    
+    limit_max = 50
+    offset_max = 49 # request returns empty list when  offset>=50
+    limit = np.min([limit,limit_max+offset_max]) # due to the offset limit the maximum amount that can be requested is 99
+    offsets = np.arange(0,int(np.ceil(limit/limit_max)))*offset_max
+    limits = np.zeros_like(offsets)
+    
+    limits[0] = np.min([limit,limit_max])
+    for k in range(1,len(offsets)):
+        limits[k] = np.min([limit + 1 - limit_max * k, limit_max])    
+    
+    top_songs_info = []
+    for k in range(len(offsets)):
+        
+        payload = {'limit': limits[k],
+                   'time_range': time_range,
+                   'offset' : offsets[k]
+                   }
+        
+        urlparams = urllibparse.urlencode(payload)
+        url="%s?%s" % (TOP_SONGS_URL, urlparams)
+        
+        response = requests.get(url,# data=payload,
+                    headers=headers, verify=True)
+        
+        top_songs_info0=response.json()['items']
+        
+        index = 0
+        for item in top_songs_info0:
+            if index==0 and k==1:
+                pass
+            else:
+                top_songs_info.append(item)
+            index+=1
+        
+    return top_songs_info
 
-TOP_SONGS_URL = 'https://api.spotify.com/v1/me/top/tracks'
+top_songs_info = get_top_tracks(token_info,limit=66,time_range='long_term')
 
-auth_header = token_info['access_token']
-
-headers = {'Authorization': 'Bearer %s' % auth_header}
-
-limit = 50 # 50 is maximum for one query
-time_range = 'long_term'
-
-payload = {'limit': limit,
-           'time_range': time_range
-           }
-
-urlparams = urllibparse.urlencode(payload)
-url="%s?%s" % (TOP_SONGS_URL, urlparams)
-
-response = requests.get(url,# data=payload,
-            headers=headers, verify=True)
-
-top_songs_info=response.json()['items']
 
 song_names = [song['name'] for song in top_songs_info]
 song_ids = [song['id'] for song in top_songs_info]
