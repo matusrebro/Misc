@@ -15,7 +15,7 @@ import requests
 import base64
 import numpy as np
 import matplotlib.pyplot as plt
-
+from collections import Counter
 
 # client id and secret from registered spotify app
 # here they are loaded from numpy binary file
@@ -25,7 +25,6 @@ client_id, client_secret = np.load('creds.npy')
 firePath = "geckodriver.exe"
 
 # --- Getting code from user ---
-
 def get_user_code(client_id, client_secret, firePath):
     
     OAUTH_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize'
@@ -129,15 +128,79 @@ def get_top_artists(token_info,limit=50,time_range='long_term'):
         
     return top_artists_info
 
+top_artists_info = get_top_artists(token_info,limit=99,time_range='long_term')
 
-top_artists_info = get_top_artists(token_info,limit=66,time_range='long_term')
+# get genres from top_artists list
+def get_genres_info(top_artists_info, genreCount_limit=5): 
+    genres = [artist['genres'] for artist in top_artists_info]
+    genreList = []
+    for g in genres:
+        for gg in g:
+            genreList.append(gg)
 
-artist_names = [artist['name'] for artist in top_artists_info]
+    genreDict = {k: v for k, v in sorted(Counter(genreList).items(), key=lambda item: item[1], reverse=False)}
+    filteredGenres = {k: v for k, v in genreDict.items() if v >genreCount_limit}
+    return filteredGenres
+
+filteredGenres = get_genres_info(top_artists_info,5)
+
+# bar plot for genres of most listened artists
+plt.figure()
+plt.title('Artist genre count')
+plt.barh(list(filteredGenres.keys()), list(filteredGenres.values()))
+plt.tight_layout()
+
+top_artist_names = [artist['name'] for artist in top_artists_info]
+
+# this gets related artist from the list of top artists
+# while it unions all found ids with itself and already collected top artist ids
+def get_related_artists(token_info,top_artist_max=10,rel_artist_per_top_artist_max = 5):
+    top_artist_ids_selection = top_artist_ids[:top_artist_max]
+    
+    RELATED_ARTISTS_URL = 'https://api.spotify.com/v1/artists'
+    auth_header = token_info['access_token']
+    headers = {'Authorization': 'Bearer %s' % auth_header}
+    
+    
+    collected_artists_info = []
+    for artist_id in top_artist_ids_selection:
+        url = RELATED_ARTISTS_URL + '/' + artist_id + '/related-artists'
+        
+        response = requests.get(url,# data=payload,
+                    headers=headers, verify=True)
+        
+        related_artists_info=response.json()['artists']
+    
+        cnt = 0
+        for item in related_artists_info:
+            collected_artists_info.append(item)
+            cnt+=1
+            if cnt==rel_artist_per_top_artist_max:
+                break
+    
+    
+    related_artists_ids = [artist['id'] for artist in collected_artists_info]
+    related_artists_ids = list(set(related_artists_ids).union(related_artists_ids))
+    related_artists_ids = [artist_id for artist_id in related_artists_ids if artist_id not in top_artist_ids]
+    
+    collected_artists_info_unique = []
+    for artist_id in related_artists_ids:
+        for artist_info in collected_artists_info:
+            if artist_info['id']==artist_id:
+                collected_artists_info_unique.append(artist_info)
+                break
+
+    return collected_artists_info_unique
 
 
+top_artist_ids = [artist['id'] for artist in top_artists_info]
 
 
+collected_artists_info_unique = get_related_artists(token_info, 10, 5)
+related_artists_names = [artist['name'] for artist in collected_artists_info_unique]
 
+print('Top related artists:')
+print(related_artists_names)
 
 # --- Top songs --- 
 # --- Maximum amount of get-able tracks is 99
@@ -185,7 +248,6 @@ def get_top_tracks(token_info,limit=50,time_range='long_term'):
     return top_songs_info
 
 top_songs_info = get_top_tracks(token_info,limit=66,time_range='long_term')
-
 
 song_names = [song['name'] for song in top_songs_info]
 song_ids = [song['id'] for song in top_songs_info]
