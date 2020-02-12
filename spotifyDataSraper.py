@@ -51,9 +51,6 @@ def get_user_code(client_id, client_secret, firePath):
     
     return code
 
-
-code = get_user_code(client_id, client_secret, firePath)
-
 # --- Using code to get token ---
 def get_user_token(code):
     
@@ -73,7 +70,23 @@ def get_user_token(code):
 
     return token_info
 
-token_info = get_user_token(code)
+# get refreshed access token using the refresh token
+def refresh_token(refreshing_token):
+    
+    OAUTH_TOKEN_URL = 'https://accounts.spotify.com/api/token'
+    
+    payload = {'grant_type': 'refresh_token',
+               'refresh_token': refreshing_token}
+    
+    auth_header = base64.b64encode(str(client_id + ':' + client_secret).encode())
+    headers = {'Authorization': 'Basic %s' % auth_header.decode()}
+    
+    response = requests.post(OAUTH_TOKEN_URL, data=payload,
+                headers=headers, verify=True)
+    
+    token_info = response.json()
+
+    return token_info
 
 """
 time_range: 
@@ -84,10 +97,15 @@ short_term - approx. last 4 weeks
 """
 
 # --- Top artists --- 
-# --- Maximum amount of get-able artists is 99
-def get_top_artists(token_info,limit=50,time_range='long_term'):
+# Maximum amount of get-able artists is 99
+def get_top_artists(token_info,refreshing_token='',limit=50,time_range='long_term'):
 
     TOP_ARTISTS_URL = 'https://api.spotify.com/v1/me/top/artists'
+    
+    
+    if refreshing_token != '':
+        token_info = refresh_token(refreshing_token)
+        
     
     auth_header = token_info['access_token']
     headers = {'Authorization': 'Bearer %s' % auth_header}
@@ -128,7 +146,6 @@ def get_top_artists(token_info,limit=50,time_range='long_term'):
         
     return top_artists_info
 
-top_artists_info = get_top_artists(token_info,limit=99,time_range='long_term')
 
 # get genres from top_artists list
 def get_genres_info(top_artists_info, genreCount_limit=5): 
@@ -142,22 +159,18 @@ def get_genres_info(top_artists_info, genreCount_limit=5):
     filteredGenres = {k: v for k, v in genreDict.items() if v >genreCount_limit}
     return filteredGenres
 
-filteredGenres = get_genres_info(top_artists_info,5)
 
-# bar plot for genres of most listened artists
-plt.figure()
-plt.title('Artist genre count')
-plt.barh(list(filteredGenres.keys()), list(filteredGenres.values()))
-plt.tight_layout()
-
-top_artist_names = [artist['name'] for artist in top_artists_info]
 
 # this gets related artist from the list of top artists
 # while it unions all found ids with itself and already collected top artist ids
-def get_related_artists(token_info,top_artist_max=10,rel_artist_per_top_artist_max = 5):
+def get_related_artists(token_info,refreshing_token='',top_artist_max=10,rel_artist_per_top_artist_max = 5):
     top_artist_ids_selection = top_artist_ids[:top_artist_max]
     
     RELATED_ARTISTS_URL = 'https://api.spotify.com/v1/artists'
+    
+    if refreshing_token != '':
+        token_info = refresh_token(refreshing_token)
+    
     auth_header = token_info['access_token']
     headers = {'Authorization': 'Bearer %s' % auth_header}
     
@@ -193,19 +206,14 @@ def get_related_artists(token_info,top_artist_max=10,rel_artist_per_top_artist_m
     return collected_artists_info_unique
 
 
-top_artist_ids = [artist['id'] for artist in top_artists_info]
-
-
-collected_artists_info_unique = get_related_artists(token_info, 10, 5)
-related_artists_names = [artist['name'] for artist in collected_artists_info_unique]
-
-print('Top related artists:')
-print(related_artists_names)
 
 # --- Top songs --- 
-# --- Maximum amount of get-able tracks is 99
-def get_top_tracks(token_info,limit=50,time_range='long_term'):
+# Maximum amount of get-able tracks is 99
+def get_top_tracks(token_info,refreshing_token='',limit=50,time_range='long_term'):
     TOP_SONGS_URL = 'https://api.spotify.com/v1/me/top/tracks'
+    
+    if refreshing_token != '':
+        token_info = refresh_token(refreshing_token)
     
     auth_header = token_info['access_token']
     
@@ -247,7 +255,38 @@ def get_top_tracks(token_info,limit=50,time_range='long_term'):
         
     return top_songs_info
 
-top_songs_info = get_top_tracks(token_info,limit=66,time_range='long_term')
+
+# getting acccess code from user
+code = get_user_code(client_id, client_secret, firePath)
+
+token_info = get_user_token(code)
+refreshing_token = token_info['refresh_token']
+
+
+artists_number = 99
+tracks_number = 99
+
+top_artists_info = get_top_artists(token_info,refreshing_token,limit=artists_number,time_range='long_term')
+
+filteredGenres = get_genres_info(top_artists_info,5)
+
+# bar plot for genres of most listened artists
+plt.figure()
+plt.title('Artist genre count collected from top '+ str(artists_number) +' artists')
+plt.barh(list(filteredGenres.keys()), list(filteredGenres.values()))
+plt.tight_layout()
+
+top_artist_names = [artist['name'] for artist in top_artists_info]
+top_artist_ids = [artist['id'] for artist in top_artists_info]
+
+collected_artists_info_unique = get_related_artists(token_info,refreshing_token, 10, 5)
+related_artists_names = [artist['name'] for artist in collected_artists_info_unique]
+
+print('Top related artists:')
+print(related_artists_names)
+
+
+top_songs_info = get_top_tracks(token_info,refreshing_token,limit=tracks_number,time_range='long_term')
 
 song_names = [song['name'] for song in top_songs_info]
 song_ids = [song['id'] for song in top_songs_info]
@@ -279,7 +318,7 @@ audio_features_speechiness = [audio_feature['speechiness'] for audio_feature in 
 
 # --- histogram plot
 plt.figure()
-
+plt.suptitle('Track data collected from top ' + str(tracks_number) +' tracks')
 plt.subplot(331)
 plt.title('Duration [min]')
 plt.hist(np.round(np.asarray(audio_features_duration_ms)/1000/60))
@@ -316,4 +355,4 @@ plt.subplot(339)
 plt.title('Explicit')
 plt.hist([int(b) for b in song_explicit])
 
-plt.tight_layout()
+plt.tight_layout(top=0.88)
